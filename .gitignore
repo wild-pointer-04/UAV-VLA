@@ -1,0 +1,21 @@
+# 忽略环境和缓存
+uav_env/
+venv/
+__pycache__/
+.ipynb_checkpoints/
+
+# 忽略大型数据和图片产物
+experiments/identified_images_VLM/
+identified_new_data/
+*.png
+*.jpg
+*.txt
+!README.md
+
+# 忽略权重文件
+*.pth
+*.bin
+*.onnx
+
+# 系统文件
+.DS_Store
