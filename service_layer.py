@@ -22,7 +22,8 @@ logger = logging.getLogger(__name__)
 processor = None
 model = None
 
-def process_flight_mission(command: str, image_path: str):
+# 【修改1：增加 custom_coords=None 参数】
+def process_flight_mission(command: str, image_path: str, custom_coords: dict = None):
     global processor, model
     
     # --- 延迟加载：第一次点击时才把模型塞进 GPU ---
@@ -66,23 +67,39 @@ def process_flight_mission(command: str, image_path: str):
         generated_tokens = output[0,inputs['input_ids'].size(1):]
         generated_text = processor.tokenizer.decode(generated_tokens, skip_special_tokens=True)
         
-        # ================= Step 3: 坐标解析与换算 =================
+# ================= Step 3: 坐标解析与换算 =================
         parsed_points = parse_points(generated_text)
         
-        csv_file_path = 'benchmark-UAV-VLPA-nano-30/parsed_coordinates.csv'
-        coordinates_dict = read_coordinates_from_csv(csv_file_path)
-        
-        base_name = os.path.basename(image_path).replace("temp_", "")
-        
-        if base_name in coordinates_dict:
-            result_coordinates = recalculate_coordinates(parsed_points, base_name, coordinates_dict)
-        elif base_name.split('.')[0] in coordinates_dict:
-            result_coordinates = recalculate_coordinates(parsed_points, base_name.split('.')[0], coordinates_dict)
+        # 【修改：适配仅含西北角和东南角的自定义坐标】
+        if custom_coords:
+            logger.info("检测到用户自定义边界经纬度，正在应用自定义映射...")
+            nw_lat, nw_lon = custom_coords["nw"]
+            se_lat, se_lon = custom_coords["se"]
+            
+            # 将自定义坐标打包成 recalculate_coordinates 识别的格式
+            # 格式要求：(左上纬度, 左上经度, 右下纬度, 右下经度)
+            custom_dict = {
+                "custom_ui_map": (nw_lat, nw_lon, se_lat, se_lon)
+            }
+            result_coordinates = recalculate_coordinates(parsed_points, "custom_ui_map", custom_dict)
+            
         else:
-            logger.warning(f"CSV 中找不到 {base_name} 的 GPS 锚点！使用测试坐标系兜底。")
-            mock_dict = { "mock": (34.05, -118.24, 34.04, -118.23) }
-            result_coordinates = recalculate_coordinates(parsed_points, "mock", mock_dict)
+            logger.info("未输入自定义经纬度，正在从 CSV 获取坐标映射...")
+            csv_file_path = 'benchmark-UAV-VLPA-nano-30/parsed_coordinates.csv'
+            coordinates_dict = read_coordinates_from_csv(csv_file_path)
+            
+            base_name = os.path.basename(image_path).replace("temp_", "")
+            
+            if base_name in coordinates_dict:
+                result_coordinates = recalculate_coordinates(parsed_points, base_name, coordinates_dict)
+            elif base_name.split('.')[0] in coordinates_dict:
+                result_coordinates = recalculate_coordinates(parsed_points, base_name.split('.')[0], coordinates_dict)
+            else:
+                logger.warning(f"CSV 中找不到 {base_name} 的 GPS 锚点！使用测试坐标系兜底。")
+                mock_dict = { "mock": (34.05, -118.24, 34.04, -118.23) }
+                result_coordinates = recalculate_coordinates(parsed_points, "mock", mock_dict)
 
+        # ================= 画图与后续步骤 =================
         os.makedirs("identified_new_data", exist_ok=True)
         output_image_path = f'identified_new_data/ui_result_{int(time())}.jpg'
         draw_dots_and_lines_on_image(image_path, parsed_points, output_path=output_image_path)
